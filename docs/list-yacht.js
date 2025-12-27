@@ -22,6 +22,9 @@ const CONFIG = {
     MIN_IMAGE_WIDTH: 200,
     MIN_IMAGE_HEIGHT: 150,
 
+    // Maximum listings to display (for testing)
+    MAX_LISTINGS_DISPLAY: 10,
+
     // Enable debug logging
     DEBUG: true
 };
@@ -59,6 +62,7 @@ const PRICE_PATTERNS = [
 // ============================================================================
 
 let parsedYachts = [];
+let totalYachtsFound = 0; // Total before limiting
 let selectedYachts = new Set();
 let currentEditIndex = null;
 let lastParseDebug = null;
@@ -145,19 +149,20 @@ function validateYachtSite(html) {
         };
     }
 
-    // Check for price patterns
-    let hasPrices = false;
-    for (const pattern of PRICE_PATTERNS) {
-        if (pattern.regex.test(html)) {
-            hasPrices = true;
-            break;
-        }
-    }
+    // Check for yacht listing patterns (links to boat pages, inventory markers)
+    const lowerHtml = html.toLowerCase();
+    const hasInventoryMarkers =
+        lowerHtml.includes('/boats/') ||
+        lowerHtml.includes('/yachts/') ||
+        lowerHtml.includes('/inventory/') ||
+        lowerHtml.includes('/listings/') ||
+        lowerHtml.includes('for sale') ||
+        lowerHtml.includes('brokerage');
 
-    if (!hasPrices) {
+    if (!hasInventoryMarkers) {
         return {
             valid: false,
-            reason: 'No pricing information found. Please ensure this is a page with yacht listings and prices.',
+            reason: 'This doesn\'t appear to be a yacht listings page. Please navigate to the inventory or boats for sale page.',
             keywordsFound: found
         };
     }
@@ -272,6 +277,162 @@ function parseMicrodataProduct(element) {
  *   - parse(doc, url): Returns array of yacht objects
  */
 const SITE_ADAPTERS = [
+    // WordPress Property/Listing Theme (common pattern used by many brokers)
+    // This matches sites using themes like flavor/flavor-flavor-flavor flavor flavor (flavor flavor theme)
+    {
+        name: 'wp-listing-theme',
+        detect: (doc, url) => {
+            // Look for common WordPress listing theme patterns
+            return doc.querySelector('.listing_wrapper, .property_listing, .listing-unit-img-wrapper, .listing_unit_price_wrapper') !== null;
+        },
+        parse: (doc, url) => {
+            const yachts = [];
+            const cards = doc.querySelectorAll('.listing_wrapper, .property_listing');
+
+            cards.forEach((card, i) => {
+                const yacht = createEmptyYacht(i);
+                yacht.source = 'wp-listing-theme';
+
+                // Title from h4 a or .listing-title
+                const titleEl = card.querySelector('h4 a, .listing-title a, .property-title a');
+                if (titleEl) {
+                    yacht.title = cleanText(titleEl.textContent);
+                    yacht.confidence.title = 90;
+                    yacht.detailUrl = resolveUrl(titleEl.href, url);
+                }
+
+                // Price from .price_wrapper, .listing_unit_price_wrapper, or any element with currency
+                const priceEl = card.querySelector('.price_wrapper, .listing_unit_price_wrapper span, .price, [class*="price"]');
+                if (priceEl) {
+                    const priceText = priceEl.textContent;
+                    // Handle "Sold" labels
+                    if (/sold/i.test(priceText)) {
+                        yacht.price = 'Sold';
+                        yacht.priceRaw = 0;
+                    } else {
+                        const parsed = extractPrice(priceText);
+                        if (parsed.raw) {
+                            yacht.price = parsed.formatted;
+                            yacht.priceRaw = parsed.raw;
+                            yacht.confidence.price = 90;
+                        }
+                    }
+                }
+
+                // Image from .listing-unit-img-wrapper or first img
+                const imgEl = card.querySelector('.listing-unit-img-wrapper img, .property-img img, img');
+                if (imgEl && isValidImage(imgEl)) {
+                    yacht.images = [resolveUrl(imgEl.src || imgEl.dataset.src, url)];
+                    yacht.confidence.images = 85;
+                }
+
+                // Year and specs from .property_location or other metadata
+                const metaEl = card.querySelector('.property_location, .listing-meta, .property-meta');
+                if (metaEl) {
+                    extractSpecs(metaEl, yacht);
+                }
+
+                // Also try extracting from card text
+                extractSpecs(card, yacht);
+
+                if (yacht.title) {
+                    yachts.push(yacht);
+                }
+            });
+
+            return yachts;
+        }
+    },
+
+    // Network Yacht Brokers style (uses .outline cards, ltboats classes, background images)
+    {
+        name: 'nyb-style',
+        detect: (doc, url) => {
+            return doc.querySelector('.outline, .ltboats-details-title, .ltboats-img, [class*="ltboats"]') !== null ||
+                url.includes('networkyachtbrokers');
+        },
+        parse: (doc, url) => {
+            const yachts = [];
+            const cards = doc.querySelectorAll('.outline, .boat-card, .yacht-card');
+
+            cards.forEach((card, i) => {
+                const yacht = createEmptyYacht(i);
+                yacht.source = 'nyb-style';
+
+                // Title - look for ltboats-details-title or any link with boat text
+                const titleEl = card.querySelector('.ltboats-details-title, .boat-title, h3 a, h4 a, a[href*="/boats"]');
+                if (titleEl) {
+                    yacht.title = cleanText(titleEl.textContent);
+                    yacht.confidence.title = 90;
+                    yacht.detailUrl = resolveUrl(titleEl.href || titleEl.closest('a')?.href, url);
+                }
+
+                // Year - explicit class or from text
+                const yearEl = card.querySelector('.ltboats-details-year, .boat-year, [class*="year"]');
+                if (yearEl) {
+                    const yearMatch = yearEl.textContent.match(/\b(19[5-9]\d|20[0-2]\d)\b/);
+                    if (yearMatch) yacht.year = yearMatch[1];
+                }
+
+                // Price - explicit class
+                const priceEl = card.querySelector('.ltboats-details-price, .boat-price, [class*="price"]');
+                if (priceEl) {
+                    const priceText = priceEl.textContent;
+                    if (/sold/i.test(priceText)) {
+                        yacht.price = 'Sold';
+                        yacht.priceRaw = 0;
+                    } else if (/poa|price on application|contact/i.test(priceText)) {
+                        yacht.price = 'POA';
+                        yacht.priceRaw = 0;
+                    } else {
+                        const parsed = extractPrice(priceText);
+                        if (parsed.raw) {
+                            yacht.price = parsed.formatted;
+                            yacht.priceRaw = parsed.raw;
+                            yacht.confidence.price = 90;
+                        }
+                    }
+                }
+
+                // Location - explicit class (this site has it!)
+                const locationEl = card.querySelector('.ltboats-details-location, .boat-location, [class*="location"]');
+                if (locationEl) {
+                    yacht.location = cleanText(locationEl.textContent);
+                    yacht.confidence.specs = (yacht.confidence.specs || 0) + 20;
+                }
+
+                // Image - check for background-image first, then img tag
+                const bgImgEl = card.querySelector('.ltboats-img, [class*="boat-img"], [style*="background"]');
+                if (bgImgEl) {
+                    const style = bgImgEl.getAttribute('style') || '';
+                    const bgMatch = style.match(/url\(['"]?([^'")\s]+)['"]?\)/);
+                    if (bgMatch) {
+                        yacht.images = [resolveUrl(bgMatch[1], url)];
+                        yacht.confidence.images = 85;
+                    }
+                }
+
+                // Fallback to img tag
+                if (yacht.images.length === 0) {
+                    const imgEl = card.querySelector('img');
+                    if (imgEl && isValidImage(imgEl)) {
+                        yacht.images = [resolveUrl(imgEl.src || imgEl.dataset.src, url)];
+                        yacht.confidence.images = 80;
+                    }
+                }
+
+                // Additional specs from text
+                extractSpecs(card, yacht);
+
+                if (yacht.title) {
+                    yachts.push(yacht);
+                }
+            });
+
+            return yachts;
+        }
+    },
+
     // YachtWorld-style sites
     {
         name: 'yachtworld-style',
@@ -324,7 +485,7 @@ const SITE_ADAPTERS = [
         name: 'card-grid',
         detect: (doc, url) => {
             // Look for repeated card-like structures
-            const containers = doc.querySelectorAll('.grid, .cards, .listings, .inventory, .results, [class*="grid"], [class*="cards"]');
+            const containers = doc.querySelectorAll('.grid, .cards, .listings, .inventory, .results, .outline, [class*="grid"], [class*="cards"], [class*="boats"], [class*="yachts"]');
             return containers.length > 0;
         },
         parse: (doc, url) => {
@@ -333,7 +494,7 @@ const SITE_ADAPTERS = [
             // Find container with multiple similar children
             const containers = [
                 ...doc.querySelectorAll('.grid, .cards, .listings, .inventory, .results'),
-                ...doc.querySelectorAll('[class*="grid"], [class*="cards"], [class*="listing"]')
+                ...doc.querySelectorAll('[class*="grid"], [class*="cards"], [class*="listing"], [class*="boats-list"], [class*="yacht-list"]')
             ];
 
             for (const container of containers) {
@@ -460,37 +621,62 @@ function extractFromGenericCard(card, baseUrl, index) {
     // Skip if too little or too much content
     if (text.length < 20 || text.length > 5000) return null;
 
-    // Must have price-like pattern
+    // Try to get price (but don't require it)
     const priceData = extractPrice(text);
-    if (!priceData.raw || priceData.raw < CONFIG.MIN_YACHT_PRICE || priceData.raw > CONFIG.MAX_YACHT_PRICE) {
-        return null;
+    if (priceData.raw && priceData.raw >= CONFIG.MIN_YACHT_PRICE && priceData.raw <= CONFIG.MAX_YACHT_PRICE) {
+        yacht.price = priceData.formatted;
+        yacht.priceRaw = priceData.raw;
+        yacht.confidence.price = 70;
     }
 
-    yacht.price = priceData.formatted;
-    yacht.priceRaw = priceData.raw;
-    yacht.confidence.price = 70;
-
     // Title - first meaningful heading or link
-    const headings = card.querySelectorAll('h1, h2, h3, h4, a');
+    const headings = card.querySelectorAll('h1, h2, h3, h4, h5, a[href*="boat"], a[href*="yacht"]');
     for (const h of headings) {
         const t = cleanText(h.textContent);
-        if (t.length >= 10 && t.length <= 150 && !t.match(/^\$|^€|^£/)) {
+        if (t.length >= 5 && t.length <= 150 && !t.match(/^[\$€£]/)) {
             yacht.title = t;
             yacht.confidence.title = 65;
+            yacht.detailUrl = h.href || h.closest('a')?.href;
             break;
         }
     }
 
-    // Images
+    // Images - try img tags first
     const images = card.querySelectorAll('img');
     yacht.images = Array.from(images)
         .filter(isValidImage)
         .map(img => resolveUrl(img.src || img.dataset.src || img.dataset.lazySrc, baseUrl))
         .filter(Boolean);
+
+    // Fallback to background images
+    if (yacht.images.length === 0) {
+        const bgElements = card.querySelectorAll('[style*="background"]');
+        bgElements.forEach(el => {
+            const style = el.getAttribute('style') || '';
+            const bgMatch = style.match(/url\(['"]?([^'")\s]+)['"]?\)/);
+            if (bgMatch && yacht.images.length < 3) {
+                const imgUrl = resolveUrl(bgMatch[1], baseUrl);
+                if (imgUrl && !imgUrl.includes('placeholder')) {
+                    yacht.images.push(imgUrl);
+                }
+            }
+        });
+    }
+
     yacht.confidence.images = yacht.images.length > 0 ? 70 : 0;
 
-    // Specs from text
+    // Location - check for explicit location elements first
+    const locationEl = card.querySelector('[class*="location"], [class*="port"], [class*="city"]');
+    if (locationEl) {
+        yacht.location = cleanText(locationEl.textContent);
+        yacht.confidence.specs = (yacht.confidence.specs || 0) + 20;
+    }
+
+    // Additional specs from text
     extractSpecs(card, yacht);
+
+    // Only need title to be valid (price is nice to have)
+    if (!yacht.title) return null;
 
     return yacht;
 }
@@ -668,7 +854,7 @@ function parseYachtListings(html, sourceUrl) {
     // Step 1: Validate this is a yacht site
     const validation = validateYachtSite(html);
     if (!validation.valid) {
-        lastParseDebug = { validation, yachts: [], debug };
+        lastParseDebug = { url: sourceUrl, validation, yachts: [], debug };
         return { yachts: [], error: validation.reason };
     }
 
@@ -730,7 +916,7 @@ function parseYachtListings(html, sourceUrl) {
     // Deduplicate
     yachts = deduplicateYachts(yachts);
 
-    lastParseDebug = { validation, yachts, debug };
+    lastParseDebug = { url: sourceUrl, validation, yachts, debug };
     log('Parse complete:', debug);
 
     return { yachts, error: null };
@@ -811,19 +997,23 @@ function calculateConfidence(yacht) {
     let score = 0;
     let maxScore = 0;
 
-    // Required fields (higher weight)
-    if (yacht.title) { score += 25; } maxScore += 25;
-    if (yacht.priceRaw) { score += 25; } maxScore += 25;
-    if (yacht.images.length > 0) { score += 20; } maxScore += 20;
+    // Title is most important (required)
+    if (yacht.title) { score += 35; } maxScore += 35;
+
+    // Images are very important
+    if (yacht.images.length > 0) { score += 25; } maxScore += 25;
+
+    // Price is nice to have but some sites don't show on listing pages
+    if (yacht.priceRaw && yacht.priceRaw > 0) { score += 15; } maxScore += 15;
 
     // Recommended fields
     if (yacht.year) { score += 10; } maxScore += 10;
-    if (yacht.length) { score += 10; } maxScore += 10;
+    if (yacht.length) { score += 5; } maxScore += 5;
     if (yacht.type) { score += 5; } maxScore += 5;
     if (yacht.location) { score += 5; } maxScore += 5;
 
-    // Bonus for structured data sources
-    if (yacht.source === 'json-ld' || yacht.source === 'microdata') {
+    // Bonus for structured data sources or known adapters
+    if (yacht.source === 'json-ld' || yacht.source === 'microdata' || yacht.source === 'red-ensign') {
         score += 10;
     }
 
@@ -834,8 +1024,15 @@ function validateYacht(yacht) {
     const issues = [];
 
     if (!yacht.title) issues.push({ field: 'title', severity: 'error', message: 'Missing title' });
-    if (!yacht.price) issues.push({ field: 'price', severity: 'error', message: 'Missing price' });
-    if (yacht.images.length === 0) issues.push({ field: 'images', severity: 'error', message: 'No images' });
+
+    // Price is only an error if completely missing; "See Details" / "POA" etc are warnings
+    if (!yacht.price) {
+        issues.push({ field: 'price', severity: 'error', message: 'Missing price' });
+    } else if (yacht.price === 'See Details' || yacht.price === 'POA' || yacht.priceRaw === 0) {
+        issues.push({ field: 'price', severity: 'warning', message: 'Price not shown' });
+    }
+
+    if (yacht.images.length === 0) issues.push({ field: 'images', severity: 'warning', message: 'No images' });
 
     if (!yacht.year) issues.push({ field: 'year', severity: 'warning', message: 'Missing year' });
     if (!yacht.length) issues.push({ field: 'length', severity: 'warning', message: 'Missing length' });
@@ -846,11 +1043,21 @@ function validateYacht(yacht) {
 }
 
 function deduplicateYachts(yachts) {
-    const seen = new Set();
+    const seenUrls = new Set();
+    const seenTitles = new Set();
+
     return yachts.filter(yacht => {
-        const key = `${yacht.title}|${yacht.priceRaw}`;
-        if (seen.has(key)) return false;
-        seen.add(key);
+        // Best: dedupe by detail URL (most reliable)
+        if (yacht.detailUrl) {
+            if (seenUrls.has(yacht.detailUrl)) return false;
+            seenUrls.add(yacht.detailUrl);
+            return true;
+        }
+
+        // Fallback: dedupe by title + price
+        const key = `${(yacht.title || '').toLowerCase().trim()}|${yacht.priceRaw || 0}`;
+        if (seenTitles.has(key)) return false;
+        seenTitles.add(key);
         return true;
     });
 }
@@ -937,14 +1144,30 @@ function renderYachtCards() {
 }
 
 function updateCounts() {
-    document.getElementById('yacht-count').textContent = parsedYachts.length;
+    // Show displayed count and total if different
+    const notShown = totalYachtsFound - parsedYachts.length;
+    const countText = notShown > 0
+        ? `${parsedYachts.length} of ${totalYachtsFound}`
+        : `${parsedYachts.length}`;
+    document.getElementById('yacht-count').textContent = countText;
     document.getElementById('selected-count').textContent = selectedYachts.size;
 
     const errorCount = parsedYachts.filter(y => y.issues.some(i => i.severity === 'error')).length;
     document.getElementById('issue-count').textContent = errorCount;
 
     const banner = document.getElementById('quality-banner');
-    if (errorCount === 0) {
+
+    // Show "more not shown" message if applicable
+    if (notShown > 0) {
+        banner.classList.remove('success');
+        banner.innerHTML = `
+            <div class="quality-icon">📋</div>
+            <div class="quality-text">
+                <strong>Showing ${parsedYachts.length} of ${totalYachtsFound} listings found</strong>
+                <p>${notShown} additional listing${notShown !== 1 ? 's' : ''} not shown (testing limit)</p>
+            </div>
+        `;
+    } else if (errorCount === 0) {
         banner.classList.add('success');
         banner.innerHTML = `
             <div class="quality-icon">✅</div>
@@ -967,18 +1190,17 @@ function updateCounts() {
 
 function showDebugInfo() {
     if (!lastParseDebug) {
-        alert('No debug info available');
+        console.log('[YachtParser] No debug info available');
         return;
     }
 
-    const info = JSON.stringify(lastParseDebug, null, 2);
-    console.log('=== DEBUG INFO ===');
-    console.log(info);
+    // Log to console for dev team
+    console.log('=== YACHT PARSER DEBUG ===');
+    console.log('URL:', lastParseDebug.url);
+    console.log('Full Debug Data:', JSON.stringify(lastParseDebug, null, 2));
 
-    // Also copy to clipboard
-    navigator.clipboard.writeText(info).then(() => {
-        alert('Debug info copied to clipboard and logged to console.\n\nShare this with support to help add support for this website.');
-    });
+    // Simple user message
+    alert(`We couldn't fully parse this website.\n\nTo request support for this broker, please email:\nsupport@yachtstrader.com\n\nInclude this URL:\n${lastParseDebug.url || document.getElementById('broker-url').value}\n\n(Debug info has been logged to the browser console)`);
 }
 
 // ============================================================================
@@ -1157,21 +1379,118 @@ async function handleFetch() {
     btnLoading.style.display = 'flex';
     btn.disabled = true;
 
-    try {
-        const html = await fetchWithProxy(url);
-        const result = parseYachtListings(html, url);
+    // Update loading text
+    const updateStatus = (msg) => {
+        btnLoading.innerHTML = `<span class="spinner"></span>${msg}`;
+    };
 
-        if (result.error) {
-            alert(`Cannot parse this website:\n\n${result.error}`);
+    try {
+        updateStatus('Fetching page...');
+        const html = await fetchWithProxy(url);
+
+        updateStatus('Scanning for listings...');
+        let result = parseYachtListings(html, url);
+        let allYachts = result.yachts || [];
+        let pagesScanned = [url];
+
+        // ALWAYS discover inventory links - homepage may only show featured boats
+        // This is CRITICAL for any website - complete inventory is often on a separate page
+        updateStatus('Discovering inventory pages...');
+        const inventoryLinks = discoverInventoryLinks(html, url);
+        log('Discovered inventory links:', inventoryLinks);
+
+        // Follow ALL discovered inventory pages (up to 5)
+        const inventoryToScan = inventoryLinks.slice(0, 5);
+        for (let i = 0; i < inventoryToScan.length; i++) {
+            const invUrl = inventoryToScan[i];
+            if (pagesScanned.includes(invUrl)) continue;
+
+            updateStatus(`Scanning inventory ${i + 1}/${inventoryToScan.length}...`);
+
+            try {
+                const invHtml = await fetchWithProxy(invUrl);
+                const invResult = parseYachtListings(invHtml, invUrl);
+
+                if (invResult.yachts && invResult.yachts.length > 0) {
+                    allYachts.push(...invResult.yachts);
+                    pagesScanned.push(invUrl);
+                    log(`Found ${invResult.yachts.length} yachts on ${invUrl}`);
+
+                    // Also check pagination on this inventory page
+                    const invPagination = discoverPaginationLinks(invHtml, invUrl);
+                    for (let j = 0; j < Math.min(3, invPagination.length); j++) {
+                        const pageUrl = invPagination[j];
+                        if (pagesScanned.includes(pageUrl)) continue;
+
+                        updateStatus(`Scanning page ${j + 2} of inventory...`);
+                        try {
+                            const pageHtml = await fetchWithProxy(pageUrl);
+                            const pageResult = parseYachtListings(pageHtml, pageUrl);
+                            if (pageResult.yachts && pageResult.yachts.length > 0) {
+                                allYachts.push(...pageResult.yachts);
+                                pagesScanned.push(pageUrl);
+                                log(`Found ${pageResult.yachts.length} yachts on ${pageUrl}`);
+                            }
+                        } catch (e) {
+                            log(`Failed to fetch page ${pageUrl}:`, e.message);
+                        }
+                    }
+                }
+            } catch (e) {
+                log(`Failed to fetch ${invUrl}:`, e.message);
+            }
+        }
+
+        // Also check pagination on the original URL if it had boats
+        if (result.yachts && result.yachts.length > 0) {
+            updateStatus('Checking for more pages...');
+            const paginationLinks = discoverPaginationLinks(html, url);
+            log('Pagination links found:', paginationLinks);
+
+            for (let i = 0; i < Math.min(3, paginationLinks.length); i++) {
+                const pageUrl = paginationLinks[i];
+                if (pagesScanned.includes(pageUrl)) continue;
+
+                updateStatus(`Scanning page ${i + 2}...`);
+
+                try {
+                    const pageHtml = await fetchWithProxy(pageUrl);
+                    const pageResult = parseYachtListings(pageHtml, pageUrl);
+
+                    if (pageResult.yachts && pageResult.yachts.length > 0) {
+                        allYachts.push(...pageResult.yachts);
+                        pagesScanned.push(pageUrl);
+                        log(`Found ${pageResult.yachts.length} yachts on ${pageUrl}`);
+                    }
+                } catch (e) {
+                    log(`Failed to fetch pagination ${pageUrl}:`, e.message);
+                }
+            }
+        }
+
+        // Deduplicate across all pages
+        allYachts = deduplicateYachts(allYachts);
+
+        if (allYachts.length === 0) {
+            // Show helpful message
+            const inventoryLinks = discoverInventoryLinks(html, url);
+            if (inventoryLinks.length > 0) {
+                alert(`No yacht listings could be extracted.\n\nWe found these potential inventory pages:\n${inventoryLinks.slice(0, 5).join('\n')}\n\nTry entering one of these URLs directly.`);
+            } else {
+                alert(`No yacht listings found on this page.\n\nTips:\n• Try navigating to the "Boats for Sale" or "Inventory" page\n• Some websites block automated access`);
+            }
             return;
         }
 
-        parsedYachts = result.yachts;
+        // Store total count and limit displayed results
+        totalYachtsFound = allYachts.length;
+        parsedYachts = allYachts.slice(0, CONFIG.MAX_LISTINGS_DISPLAY);
+
         selectedYachts.clear();
         parsedYachts.forEach(y => selectedYachts.add(y.id));
 
         document.getElementById('results-section').style.display = 'block';
-        document.getElementById('source-url').textContent = `Source: ${url}`;
+        document.getElementById('source-url').textContent = `Source: ${pagesScanned.join(', ')}`;
         renderYachtCards();
         document.getElementById('results-section').scrollIntoView({ behavior: 'smooth' });
 
@@ -1183,6 +1502,178 @@ async function handleFetch() {
         btnLoading.style.display = 'none';
         btn.disabled = false;
     }
+}
+
+/**
+ * Discover links to inventory/boat listing pages from a given page
+ */
+function discoverInventoryLinks(html, baseUrl) {
+    const parser = new DOMParser();
+    const doc = parser.parseFromString(html, 'text/html');
+
+    const inventoryPatterns = [
+        /\/boats?\/?$/i,
+        /\/yachts?\/?$/i,
+        /\/inventory\/?$/i,
+        /\/listings?\/?$/i,
+        /\/for-?sale\/?$/i,
+        /\/brokerage\/?$/i,
+        /\/used-?(boats?|yachts?)/i,
+        /\/new-?(boats?|yachts?)/i,
+        /\/motor-?yacht/i,
+        /\/sail(ing)?-?yacht/i,
+        /\/search/i,
+        /\/browse/i,
+        /\/fleet/i,
+        /\/vessels?/i,
+        /\/results\/?$/i,  // Network Yacht Brokers pattern
+        /\/boats[_-]for[_-]sale/i
+    ];
+
+    const inventoryKeywords = [
+        'boats for sale', 'yachts for sale', 'inventory', 'our boats',
+        'our yachts', 'browse', 'search boats', 'search yachts',
+        'view all', 'see all', 'all boats', 'all yachts', 'fleet',
+        'brokerage', 'for sale', 'listings', 'motor yachts', 'sailing yachts',
+        'search', 'find a boat', 'find a yacht', 'results'
+    ];
+
+    const links = doc.querySelectorAll('a[href]');
+    const found = new Map(); // url -> score
+
+    const base = new URL(baseUrl);
+
+    links.forEach(link => {
+        let href = link.href || link.getAttribute('href');
+        if (!href || href.startsWith('#') || href.startsWith('javascript:')) return;
+
+        // Resolve relative URLs
+        try {
+            href = new URL(href, baseUrl).href;
+        } catch {
+            return;
+        }
+
+        // Must be same domain
+        try {
+            const linkUrl = new URL(href);
+            if (linkUrl.hostname !== base.hostname) return;
+        } catch {
+            return;
+        }
+
+        // Skip non-html resources
+        if (/\.(jpg|png|gif|pdf|doc|css|js)$/i.test(href)) return;
+
+        // Skip the current page
+        if (href === baseUrl || href === baseUrl + '/') return;
+
+        let score = 0;
+        const linkText = (link.textContent || '').toLowerCase().trim();
+        const hrefLower = href.toLowerCase();
+
+        // Check URL patterns
+        for (const pattern of inventoryPatterns) {
+            if (pattern.test(hrefLower)) {
+                score += 10;
+                break;
+            }
+        }
+
+        // Check link text
+        for (const keyword of inventoryKeywords) {
+            if (linkText.includes(keyword)) {
+                score += 5;
+                break;
+            }
+        }
+
+        // Bonus for nav links (more likely to be main inventory)
+        if (link.closest('nav, header, .nav, .menu, .navigation')) {
+            score += 3;
+        }
+
+        // Bonus for prominent links
+        if (link.closest('h1, h2, h3, .hero, .banner, .cta')) {
+            score += 2;
+        }
+
+        if (score > 0) {
+            const existing = found.get(href) || 0;
+            found.set(href, Math.max(existing, score));
+        }
+    });
+
+    // Sort by score and return top results
+    return Array.from(found.entries())
+        .sort((a, b) => b[1] - a[1])
+        .map(([url]) => url)
+        .slice(0, 10);
+}
+
+/**
+ * Discover pagination links (page 2, page 3, next, etc.)
+ */
+function discoverPaginationLinks(html, baseUrl) {
+    const parser = new DOMParser();
+    const doc = parser.parseFromString(html, 'text/html');
+
+    const paginationUrls = [];
+    const base = new URL(baseUrl);
+
+    // Look for pagination containers
+    const paginationContainers = doc.querySelectorAll(
+        '.pagination, .paging, .page-numbers, .wp-pagenavi, nav[aria-label*="pagination"], [class*="pagination"]'
+    );
+
+    // If we find a pagination container, get links from it
+    if (paginationContainers.length > 0) {
+        paginationContainers.forEach(container => {
+            const links = container.querySelectorAll('a[href]');
+            links.forEach(link => {
+                const text = link.textContent.trim();
+                const href = link.href || link.getAttribute('href');
+
+                // Skip "previous" and current page
+                if (/prev|previous|«|‹/i.test(text)) return;
+                if (link.classList.contains('current') || link.classList.contains('active')) return;
+
+                // Accept "next", numbered pages (2, 3, etc.), or ">", "»"
+                if (/^[2-9]$|^next$|^›$|^»$/i.test(text) || /\/page\/\d+/i.test(href)) {
+                    try {
+                        const fullUrl = new URL(href, baseUrl).href;
+                        if (fullUrl.includes(base.hostname) && !paginationUrls.includes(fullUrl)) {
+                            paginationUrls.push(fullUrl);
+                        }
+                    } catch { }
+                }
+            });
+        });
+    }
+
+    // Fallback: look for common pagination URL patterns
+    if (paginationUrls.length === 0) {
+        const allLinks = doc.querySelectorAll('a[href]');
+        allLinks.forEach(link => {
+            const href = link.href || link.getAttribute('href');
+            if (!href) return;
+
+            // Match /page/2, ?page=2, &p=2 patterns
+            if (/[?&/]page[=/]?\d+/i.test(href) || /\/\d+\/?$/.test(href)) {
+                try {
+                    const fullUrl = new URL(href, baseUrl).href;
+                    if (fullUrl.includes(base.hostname) &&
+                        fullUrl !== baseUrl &&
+                        !paginationUrls.includes(fullUrl)) {
+                        paginationUrls.push(fullUrl);
+                    }
+                } catch { }
+            }
+        });
+    }
+
+    log('Pagination URLs found:', paginationUrls);
+    return paginationUrls;
 }
 
 function capitalizeFirst(str) {
