@@ -1,0 +1,201 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="Yachts Trader - Buy and sell yachts online. Browse thousands of new and used yachts for sale.">
+    <title>Yachts Trader - Buy & Sell Yachts</title>
+    <link rel="stylesheet" href="styles.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+</head>
+<body>
+    <!-- Header -->
+    <header class="header">
+        <div class="container header-content">
+            <a href="index.html" class="logo">
+                <span class="logo-icon">⛵</span>
+                <span class="logo-text">Yachts<span class="logo-accent">Trader</span></span>
+            </a>
+            <nav class="nav">
+                <a href="#" class="nav-link">Buy</a>
+                <a href="#" class="nav-link">Sell</a>
+                <a href="#" class="nav-link">Services</a>
+                <a href="#" class="nav-link">About</a>
+            </nav>
+            <div class="header-actions">
+                <a href="#" class="btn btn-outline">Sign In</a>
+                <a href="#" class="btn btn-primary">List Your Yacht</a>
+            </div>
+        </div>
+    </header>
+
+    <!-- Hero Search Section -->
+    <section class="hero">
+        <div class="container">
+            <h1>Find Your Perfect Yacht</h1>
+            <p class="hero-subtitle">Browse thousands of new and used yachts for sale</p>
+            
+            <div class="search-box">
+                <div class="search-row">
+                    <div class="search-field">
+                        <label for="type">Type</label>
+                        <select id="type">
+                            <option value="">All Types</option>
+                            <option value="motor">Motor Yacht</option>
+                            <option value="sail">Sailing Yacht</option>
+                            <option value="catamaran">Catamaran</option>
+                            <option value="superyacht">Superyacht</option>
+                        </select>
+                    </div>
+                    <div class="search-field">
+                        <label for="min-price">Min Price</label>
+                        <select id="min-price">
+                            <option value="">No Min</option>
+                            <option value="50000">$50,000</option>
+                            <option value="100000">$100,000</option>
+                            <option value="250000">$250,000</option>
+                            <option value="500000">$500,000</option>
+                            <option value="1000000">$1,000,000</option>
+                        </select>
+                    </div>
+                    <div class="search-field">
+                        <label for="max-price">Max Price</label>
+                        <select id="max-price">
+                            <option value="">No Max</option>
+                            <option value="100000">$100,000</option>
+                            <option value="250000">$250,000</option>
+                            <option value="500000">$500,000</option>
+                            <option value="1000000">$1,000,000</option>
+                            <option value="5000000">$5,000,000+</option>
+                        </select>
+                    </div>
+                    <div class="search-field">
+                        <label for="length">Length</label>
+                        <select id="length">
+                            <option value="">Any Length</option>
+                            <option value="30">Up to 30ft</option>
+                            <option value="50">30-50ft</option>
+                            <option value="80">50-80ft</option>
+                            <option value="100">80-100ft</option>
+                            <option value="101">100ft+</option>
+                        </select>
+                    </div>
+                    <button class="btn btn-primary btn-search" id="search-btn">
+                        <span>Search</span>
+                    </button>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Listings Section -->
+    <section class="listings-section">
+        <div class="container">
+            <div class="listings-header">
+                <h2>Featured Yachts</h2>
+                <div class="listings-sort">
+                    <label for="sort">Sort by:</label>
+                    <select id="sort">
+                        <option value="featured">Featured</option>
+                        <option value="price-low">Price: Low to High</option>
+                        <option value="price-high">Price: High to Low</option>
+                        <option value="newest">Newest</option>
+                        <option value="length">Length</option>
+                    </select>
+                </div>
+            </div>
+
+            <div class="listings-grid" id="listings-grid">
+                <!-- Listings will be populated by JavaScript -->
+            </div>
+
+            <div class="load-more">
+                <button class="btn btn-outline" id="load-more-btn">Load More Listings</button>
+            </div>
+        </div>
+    </section>
+
+    <!-- Categories Section -->
+    <section class="categories-section">
+        <div class="container">
+            <h2>Browse by Category</h2>
+            <div class="categories-grid">
+                <a href="#" class="category-card">
+                    <div class="category-icon">🚤</div>
+                    <h3>Motor Yachts</h3>
+                    <p>2,450 listings</p>
+                </a>
+                <a href="#" class="category-card">
+                    <div class="category-icon">⛵</div>
+                    <h3>Sailing Yachts</h3>
+                    <p>1,820 listings</p>
+                </a>
+                <a href="#" class="category-card">
+                    <div class="category-icon">🛥️</div>
+                    <h3>Catamarans</h3>
+                    <p>890 listings</p>
+                </a>
+                <a href="#" class="category-card">
+                    <div class="category-icon">🚢</div>
+                    <h3>Superyachts</h3>
+                    <p>320 listings</p>
+                </a>
+            </div>
+        </div>
+    </section>
+
+    <!-- Footer -->
+    <footer class="footer">
+        <div class="container">
+            <div class="footer-grid">
+                <div class="footer-col">
+                    <div class="logo footer-logo">
+                        <span class="logo-icon">⛵</span>
+                        <span class="logo-text">Yachts<span class="logo-accent">Trader</span></span>
+                    </div>
+                    <p class="footer-description">The world's leading marketplace for buying and selling yachts.</p>
+                </div>
+                <div class="footer-col">
+                    <h4>Buying</h4>
+                    <ul>
+                        <li><a href="#">Search Yachts</a></li>
+                        <li><a href="#">New Yachts</a></li>
+                        <li><a href="#">Used Yachts</a></li>
+                        <li><a href="#">Yacht Financing</a></li>
+                    </ul>
+                </div>
+                <div class="footer-col">
+                    <h4>Selling</h4>
+                    <ul>
+                        <li><a href="#">List Your Yacht</a></li>
+                        <li><a href="#">Seller Guide</a></li>
+                        <li><a href="#">Pricing</a></li>
+                        <li><a href="#">Dealer Solutions</a></li>
+                    </ul>
+                </div>
+                <div class="footer-col">
+                    <h4>Company</h4>
+                    <ul>
+                        <li><a href="#">About Us</a></li>
+                        <li><a href="#">Contact</a></li>
+                        <li><a href="#">Careers</a></li>
+                        <li><a href="#">Press</a></li>
+                    </ul>
+                </div>
+            </div>
+            <div class="footer-bottom">
+                <p>&copy; 2024 YachtsTrader. All rights reserved.</p>
+                <div class="footer-links">
+                    <a href="#">Privacy Policy</a>
+                    <a href="#">Terms of Service</a>
+                    <a href="#">Cookie Policy</a>
+                </div>
+            </div>
+        </div>
+    </footer>
+
+    <script src="script.js"></script>
+</body>
+</html>
