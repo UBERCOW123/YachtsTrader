@@ -1,0 +1,171 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="List your yacht on Yachts Trader - Import listings from your existing website">
+    <title>List Your Yacht - Yachts Trader</title>
+    <link rel="stylesheet" href="styles.css">
+    <link rel="stylesheet" href="list-yacht.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+</head>
+
+<body>
+    <!-- Header -->
+    <header class="header">
+        <div class="container header-content">
+            <a href="index.html" class="logo">
+                <span class="logo-icon">⛵</span>
+                <span class="logo-text">Yachts<span class="logo-accent">Trader</span></span>
+            </a>
+            <nav class="nav">
+                <a href="index.html" class="nav-link">Buy</a>
+                <a href="#" class="nav-link">Sell</a>
+                <a href="#" class="nav-link">Services</a>
+                <a href="#" class="nav-link">About</a>
+            </nav>
+            <div class="header-actions">
+                <a href="#" class="btn btn-outline">Sign In</a>
+                <a href="list-yacht.html" class="btn btn-primary">List Your Yacht</a>
+            </div>
+        </div>
+    </header>
+
+    <!-- Main Content -->
+    <main class="list-main">
+        <div class="container">
+            <!-- Page Header -->
+            <div class="page-header">
+                <h1>Import Your Yacht Listings</h1>
+                <p>Enter the URL of your yacht brokerage website and we'll automatically import your listings</p>
+            </div>
+
+            <!-- URL Input Section -->
+            <section class="url-section">
+                <div class="url-input-wrapper">
+                    <div class="url-input-group">
+                        <span class="url-icon">🔗</span>
+                        <input type="url" id="broker-url" class="url-input"
+                            placeholder="https://example-yachtbroker.com/inventory" autocomplete="off">
+                        <button class="btn btn-primary btn-fetch" id="fetch-btn">
+                            <span class="btn-text">Scan Website</span>
+                            <span class="btn-loading" style="display: none;">
+                                <span class="spinner"></span>
+                                Scanning...
+                            </span>
+                        </button>
+                    </div>
+                    <p class="url-hint">Enter the URL of a page that lists your yachts for sale</p>
+                </div>
+
+                <!-- Supported Sites Info -->
+                <div class="supported-info">
+                    <h3>How it works</h3>
+                    <div class="steps-grid">
+                        <div class="step">
+                            <div class="step-number">1</div>
+                            <h4>Enter URL</h4>
+                            <p>Paste the URL of your yacht listings page</p>
+                        </div>
+                        <div class="step">
+                            <div class="step-number">2</div>
+                            <h4>We Scan</h4>
+                            <p>Our system extracts yacht details automatically</p>
+                        </div>
+                        <div class="step">
+                            <div class="step-number">3</div>
+                            <h4>Review</h4>
+                            <p>Check the data and fill in any missing fields</p>
+                        </div>
+                        <div class="step">
+                            <div class="step-number">4</div>
+                            <h4>Publish</h4>
+                            <p>Approve and list on Yachts Trader</p>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Results Section (Hidden initially) -->
+            <section class="results-section" id="results-section" style="display: none;">
+                <div class="results-header">
+                    <div class="results-summary">
+                        <h2>
+                            <span id="yacht-count">0</span> Yachts Found
+                        </h2>
+                        <p class="source-url" id="source-url"></p>
+                    </div>
+                    <div class="results-actions">
+                        <button class="btn btn-outline" id="select-all-btn">Select All</button>
+                        <button class="btn btn-primary" id="import-selected-btn">
+                            Import Selected (<span id="selected-count">0</span>)
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Data Quality Banner -->
+                <div class="quality-banner" id="quality-banner">
+                    <div class="quality-icon">⚠️</div>
+                    <div class="quality-text">
+                        <strong><span id="issue-count">0</span> listings have missing data</strong>
+                        <p>Fields marked in red require attention before publishing</p>
+                    </div>
+                </div>
+
+                <!-- Yacht Cards Grid -->
+                <div class="yacht-cards" id="yacht-cards">
+                    <!-- Cards will be injected by JavaScript -->
+                </div>
+            </section>
+
+            <!-- Manual Entry Option -->
+            <section class="manual-section">
+                <div class="manual-divider">
+                    <span>or</span>
+                </div>
+                <a href="#" class="btn btn-outline btn-large">
+                    <span>✏️</span>
+                    Enter Yacht Details Manually
+                </a>
+            </section>
+        </div>
+    </main>
+
+    <!-- Edit Modal -->
+    <div class="modal-overlay" id="edit-modal" style="display: none;">
+        <div class="modal">
+            <div class="modal-header">
+                <h2>Edit Yacht Details</h2>
+                <button class="modal-close" id="modal-close">&times;</button>
+            </div>
+            <div class="modal-body" id="modal-body">
+                <!-- Form will be injected -->
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-outline" id="modal-cancel">Cancel</button>
+                <button class="btn btn-primary" id="modal-save">Save Changes</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Footer -->
+    <footer class="footer">
+        <div class="container">
+            <div class="footer-bottom" style="border-top: none; padding-top: 0;">
+                <p>&copy; 2024 YachtsTrader. All rights reserved.</p>
+                <div class="footer-links">
+                    <a href="#">Privacy Policy</a>
+                    <a href="#">Terms of Service</a>
+                    <a href="#">Contact Support</a>
+                </div>
+            </div>
+        </div>
+    </footer>
+
+    <script src="list-yacht.js"></script>
+</body>
+
+</html>
